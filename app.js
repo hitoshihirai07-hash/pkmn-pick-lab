@@ -1,9 +1,9 @@
 // Pick Lab - 対戦・選出シミュレーター（MVP）
 // 静的サイト向け：GitHub Pages / Cloudflare Pages でそのまま動く想定
 
-const PS_DATA_BASE = 'https://play.pokemonshowdown.com/data/';
-const PS_SETS_BASE = 'https://play.pokemonshowdown.com/data/sets/';
-const MOTEMEN_BASE = 'https://raw.githubusercontent.com/motemen/pokemon-data/main/';
+const PS_DATA_BASE = './dex/ps/';
+const PS_SETS_BASE = './dex/ps/sets/';
+const MOTEMEN_BASE = './dex/jp/';
 
 const CACHE_KEY = 'picklab_cache_v1';
 

@@ -26,7 +26,8 @@ GitHub + Cloudflare Pages にそのまま置いて動く前提（ビルド不要
 ※このMVPは “コード流用” ではなく、公開データを取得して参照します。
 
 ## 使い方
-1. そのまま `index.html` を開く（またはGitHub/Cloudflareに置く）
+1. GitHub/Cloudflare Pages に置いて開く（推奨）
+   - ※ブラウザの制限で `file://` 直開きだと図鑑JSONが読み込めないことがあります。ローカルで試すなら簡易サーバを使ってください（例：PCなら `python -m http.server`）。
 2. 右上の「図鑑データ読み込み」を押す（初回は少し重い）
 3. チームを埋めて、必要なら「選出」にチェック
 4. 「シミュレーション実行」
@@ -37,3 +38,17 @@ GitHub + Cloudflare Pages にそのまま置いて動く前提（ビルド不要
 - Output directory：`/`
 
 （＝リポジトリのルートにこのファイル群を置くだけ）
+
+
+## 図鑑データ（オフライン同梱）
+このパッケージは、図鑑データをリポジトリ内に同梱する「オフライン運用」版です。
+外部サイト（Showdown / GitHub raw）へのアクセスがブロックされる環境でも動く想定。
+
+配置：
+- `dex/ps/` … `pokedex.json`, `moves.json`, `learnsets.json`
+- `dex/ps/sets/` … `gen9ou.json`（セット候補用）
+- `dex/jp/` … `POKEMON_ALL.json`, `ITEM_ALL.json`（日本語名検索/表示用）
+
+## データ出典
+- Pokémon Showdown 公開データ（pokedex/moves/learnsets/sets）
+- motemen/pokemon-data（日本語名・アイテム名の統合データ）
