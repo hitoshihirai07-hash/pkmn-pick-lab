@@ -27,10 +27,13 @@
     jpPokemonById: new Map(), // showdownId -> {ja,en}
     jpItemByEn: new Map(),    // English name -> ja
     jpMoveByEn: new Map(),    // English move name -> ja
+    jpAbilityByEn: new Map(), // English ability name -> ja
+    pendingJa: { move:new Map(), ability:new Map() },
     moveIdByName: new Map(),  // English move name -> id
     moveNameById: new Map(),  // id -> English name
     speciesOptions: [],       // {id, ja, en, search}
     itemOptions: [],          // {ja,en,search}
+    itemEnByJa: new Map(),     // Japanese item name -> English name
     teams: {
       left: makeEmptyTeam(),
       right: makeEmptyTeam(),
@@ -65,7 +68,7 @@
 
   // Simple searchable dropdown (no <datalist> trouble)
   function createSearchBox({placeholder, getOptions, onPick, formatLabel}) {
-    const wrap = el("div", {class:"field"});
+    const wrap = el("div", {class:"searchbox"});
     const input = el("input", {type:"text", placeholder});
     const list = el("div", {class:"card", style:"display:none; position:relative; padding:6px; margin-top:6px"});
     list.style.maxHeight = "240px";
@@ -107,16 +110,121 @@
     if (!id) return "";
     const en = state.moveNameById.get(id) || id;
     const ja = state.jpMoveByEn.get(en);
-    return ja ? `${ja} / ${en}` : en;
+    return ja ? ja : en;
+  }
+
+  function fmtAbility(en){
+    if (!en) return "";
+    const ja = state.jpAbilityByEn.get(en);
+    return ja ? ja : en;
   }
 
   function fmtSpecies(id){
     const jp = state.jpPokemonById.get(id);
     if (!jp) return id;
-    return jp.ja ? `${jp.ja} / ${jp.en}` : jp.en;
+    return jp.ja ? jp.ja : jp.en;
   }
 
-  // --- Dex loading ---
+  
+  // --- i18n (Japanese) ---
+  const I18N_CACHE_KEY = "picklab_i18n_cache_v1";
+  function loadI18nCache(){
+    try{
+      const raw = localStorage.getItem(I18N_CACHE_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return (obj && typeof obj === "object") ? obj : {};
+    }catch{
+      return {};
+    }
+  }
+  let _saveTimer = null;
+  function saveI18nCache(){
+    if (_saveTimer) return;
+    _saveTimer = setTimeout(() => {
+      _saveTimer = null;
+      try{
+        const out = {
+          move: Object.fromEntries(state.jpMoveByEn.entries()),
+          ability: Object.fromEntries(state.jpAbilityByEn.entries()),
+        };
+        localStorage.setItem(I18N_CACHE_KEY, JSON.stringify(out));
+      }catch{}
+    }, 300);
+  }
+
+  function pokeSlug(enName){
+    return (enName||"")
+      .toLowerCase()
+      .replace(/[’']/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  async function fetchPokeapi(kind, slug){
+    const url = `https://pokeapi.co/api/v2/${kind}/${slug}/`;
+    const res = await fetch(url, {cache:"force-cache"});
+    if (!res.ok) throw new Error(`PokeAPI ${kind} ${res.status}`);
+    return res.json();
+  }
+
+  function pickJaName(names){
+    if (!Array.isArray(names)) return "";
+    // Prefer ja-Hrkt, then ja
+    const jaHrkt = names.find(n => n?.language?.name === "ja-Hrkt");
+    if (jaHrkt?.name) return jaHrkt.name;
+    const ja = names.find(n => n?.language?.name === "ja");
+    if (ja?.name) return ja.name;
+    return "";
+  }
+
+  async function ensureMoveJa(enName){
+    if (!enName) return "";
+    if (state.jpMoveByEn.has(enName)) return state.jpMoveByEn.get(enName) || "";
+    if (state.pendingJa.move.has(enName)) return state.pendingJa.move.get(enName);
+    const p = (async () => {
+      try{
+        const data = await fetchPokeapi("move", pokeSlug(enName));
+        const ja = pickJaName(data?.names) || "";
+        if (ja) {
+          state.jpMoveByEn.set(enName, ja);
+          saveI18nCache();
+        }
+        return ja;
+      }catch{
+        return "";
+      } finally {
+        state.pendingJa.move.delete(enName);
+      }
+    })();
+    state.pendingJa.move.set(enName, p);
+    return p;
+  }
+
+  async function ensureAbilityJa(enName){
+    if (!enName) return "";
+    if (state.jpAbilityByEn.has(enName)) return state.jpAbilityByEn.get(enName) || "";
+    if (state.pendingJa.ability.has(enName)) return state.pendingJa.ability.get(enName);
+    const p = (async () => {
+      try{
+        const data = await fetchPokeapi("ability", pokeSlug(enName));
+        const ja = pickJaName(data?.names) || "";
+        if (ja) {
+          state.jpAbilityByEn.set(enName, ja);
+          saveI18nCache();
+        }
+        return ja;
+      }catch{
+        return "";
+      } finally {
+        state.pendingJa.ability.delete(enName);
+      }
+    })();
+    state.pendingJa.ability.set(enName, p);
+    return p;
+  }
+// --- Dex loading ---
   async function fetchJson(relPath){
     const url = new URL(relPath, location.href).toString();
     const res = await fetch(url, {cache:"no-store"});
@@ -145,6 +253,11 @@
     state.sets = setsWrap && setsWrap.dex ? setsWrap.dex : (setsWrap || {});
     state.jpMoveByEn = new Map(Object.entries(moveEnJa || {}));
 
+    // merge cached translations (browser localStorage)
+    const cache = loadI18nCache();
+    if (cache.move) for (const [en,ja] of Object.entries(cache.move)) state.jpMoveByEn.set(en, ja);
+    if (cache.ability) state.jpAbilityByEn = new Map(Object.entries(cache.ability));
+
     // move maps
     state.moveIdByName = new Map();
     state.moveNameById = new Map();
@@ -168,10 +281,12 @@
 
     // item map
     state.jpItemByEn = new Map();
+    state.itemEnByJa = new Map();
     state.itemOptions = [];
     for (const it of jpItemList || []) {
       if (!it || !it.name_en) continue;
       state.jpItemByEn.set(it.name_en, it.name_ja || it.name_en);
+      if (it.name_ja) state.itemEnByJa.set(it.name_ja, it.name_en);
       state.itemOptions.push({
         en: it.name_en,
         ja: it.name_ja || it.name_en,
@@ -204,6 +319,12 @@
 
   // --- Type chart (Gen9) ---
   // multipliers: 0, 0.5, 1, 2
+
+  const TYPE_JA = {
+    Normal: "ノーマル", Fire: "ほのお", Water: "みず", Electric: "でんき", Grass: "くさ", Ice: "こおり",
+    Fighting: "かくとう", Poison: "どく", Ground: "じめん", Flying: "ひこう", Psychic: "エスパー", Bug: "むし",
+    Rock: "いわ", Ghost: "ゴースト", Dragon: "ドラゴン", Dark: "あく", Steel: "はがね", Fairy: "フェアリー",
+  };
   const TYPE_CHART = {
     Normal:   {Rock:.5, Ghost:0, Steel:.5},
     Fire:     {Fire:.5, Water:.5, Grass:2, Ice:2, Bug:2, Rock:.5, Dragon:.5, Steel:2},
@@ -321,6 +442,8 @@
         // default ability
         const ab = getAbilities(mon.speciesId);
         mon.ability = ab[0] || "";
+        // fetch JP ability names (best-effort, cached)
+        for (const a of ab) { if (a && !state.jpAbilityByEn.has(a)) ensureAbilityJa(a); }
         // clear moves if now illegal under learnset filter
         if (state.filterLearnset) {
           const allowed = getAllowedMoveIds(mon.speciesId);
@@ -328,7 +451,7 @@
         }
         renderAll();
       },
-      formatLabel: (o) => `${o.ja ? o.ja + " / " : ""}${o.en}`
+      formatLabel: (o) => `${o.ja || o.en}`
     });
 
     if (mon.speciesId) speciesBox.setValue(state.jpPokemonById.get(mon.speciesId)?.ja || state.pokedex[mon.speciesId]?.name || "");
@@ -336,25 +459,43 @@
     const abilitySel = el("select");
     const abilities = getAbilities(mon.speciesId);
     abilitySel.appendChild(el("option", {value:""}, "（未選択）"));
-    for (const a of abilities) abilitySel.appendChild(el("option", {value:a}, a));
+    for (const a of abilities) {
+      // lazy fetch Japanese name
+      if (a && !state.jpAbilityByEn.has(a)) {
+        ensureAbilityJa(a).then(() => renderAll());
+      }
+      abilitySel.appendChild(el("option", {value:a}, fmtAbility(a)));
+    }
     abilitySel.value = mon.ability || "";
     abilitySel.addEventListener("change", e => mon.ability = e.target.value);
 
-    const itemInput = el("input", {type:"text", placeholder:"例: たべのこし / Leftovers"});
-    itemInput.value = mon.item || "";
-    itemInput.addEventListener("input", e => mon.item = e.target.value);
+    const itemBox = createSearchBox({
+      placeholder: "持ち物（日本語/英語）で検索",
+      getOptions: () => state.itemOptions,
+      onPick: (o) => {
+        mon.item = o.en;
+        renderAll();
+      },
+      formatLabel: (o) => `${o.ja}`
+    });
+
+    // show current item
+    if (mon.item) {
+      const en = mon.item;
+      const ja = state.jpItemByEn.get(en) || en;
+      itemBox.setValue(ja);
+    }
 
     const teraSel = el("select");
     const TYPES = Object.keys(TYPE_CHART);
     teraSel.appendChild(el("option", {value:""}, "（自由）"));
-    for (const t of TYPES) teraSel.appendChild(el("option", {value:t}, t));
+    for (const t of TYPES) teraSel.appendChild(el("option", {value:t}, `${TYPE_JA[t]||t}`));
     teraSel.value = mon.teraType || "";
     teraSel.addEventListener("change", e => mon.teraType = e.target.value);
 
     const natureSel = el("select");
     for (const n of NATURES) {
-      const label = `${n.ja} / ${n.en}`;
-      natureSel.appendChild(el("option", {value:n.en}, label));
+      natureSel.appendChild(el("option", {value:n.en}, n.ja));
     }
     natureSel.value = mon.nature || "Serious";
     natureSel.addEventListener("change", e => mon.nature = e.target.value);
@@ -410,9 +551,16 @@
 
     // Recommended move chips
     const recMoves = getRecommendedMoves(mon.speciesId, 12);
+    // lazy fetch Japanese for recommended moves
+    for (const mid of recMoves) {
+      const en = state.moveNameById.get(mid);
+      if (en && !state.jpMoveByEn.has(en)) ensureMoveJa(en).then(() => renderAll());
+    }
     if (recMoves.length) {
       const recBox = el("div", {class:"chips"});
       for (const mid of recMoves) {
+        const enName = state.moveNameById.get(mid) || "";
+        if (enName && !state.jpMoveByEn.has(enName)) ensureMoveJa(enName).then(()=>renderAll());
         const chip = el("span", {class:"chip"}, fmtMove(mid));
         chip.addEventListener("click", () => {
           // fill first empty slot
@@ -433,9 +581,9 @@
     if (recItems.length) {
       for (const itEn of recItems) {
         const ja = state.jpItemByEn.get(itEn) || itEn;
-        const chip = el("span", {class:"chip"}, `${ja} / ${itEn}`);
+        const chip = el("span", {class:"chip", title: itEn}, ja);
         chip.addEventListener("click", () => {
-          mon.item = `${ja}`;
+          mon.item = itEn;
           renderAll();
         });
         itemRecBox.appendChild(chip);
@@ -450,7 +598,7 @@
       ),
       el("div", {class:"row"},
         el("div", {class:"field"}, el("label", {}, "特性"), abilitySel),
-        el("div", {class:"field"}, el("label", {}, "持ち物"), itemInput),
+        el("div", {class:"field"}, el("label", {}, "持ち物"), itemBox.wrap),
         el("div", {class:"field"}, el("label", {}, "テラスタイプ"), teraSel)
       ),
       recItems.length ? el("div", {class:"row"}, el("div", {class:"field"}, el("label", {}, "持ち物おすすめ"), itemRecBox)) : null,
@@ -492,7 +640,7 @@
   }
 
   function createMoveSearch(mon, moveIndex){
-    const wrap = el("div", {class:"field"});
+    const wrap = el("div", {class:"searchbox"});
     const input = el("input", {type:"text", placeholder:`技${moveIndex+1}`});
     // set current
     if (mon.moves[moveIndex]) input.value = fmtMove(mon.moves[moveIndex]);
@@ -510,8 +658,9 @@
         if (allowed && !allowed.has(id)) continue;
         const en = m.name;
         const ja = state.jpMoveByEn.get(en) || "";
-        const label = ja ? `${ja} / ${en}` : en;
-        opts.push({id, label, search: normalize(label)});
+        const label = ja || en;
+        const search = normalize(`${ja} ${en}`);
+        opts.push({id, label, search});
       }
       return opts;
     }
@@ -527,6 +676,9 @@
         );
         btn.addEventListener("click", () => {
           mon.moves[moveIndex] = o.id;
+          // fetch Japanese name if missing
+          const en = state.moveNameById.get(o.id);
+          if (en) ensureMoveJa(en).then(() => renderAll());
           renderAll();
         });
         list.appendChild(btn);
@@ -566,8 +718,7 @@
     if (!mon.speciesId) return;
     if (s.ability) mon.ability = s.ability;
     if (s.item) {
-      const ja = state.jpItemByEn.get(s.item) || s.item;
-      mon.item = ja;
+      mon.item = s.item;
     }
     if (s.nature) mon.nature = s.nature;
     if (s.teraType) mon.teraType = s.teraType;
@@ -640,6 +791,19 @@
     if (!obj || !obj.teams) throw new Error("JSON形式が違います");
     state.filterLearnset = !!obj.filterLearnset;
     state.teams = obj.teams;
+    // normalize legacy saved items (Japanese -> English)
+    try{
+      for (const side of ["left","right"]) {
+        for (const mon of (state.teams[side]||[])) {
+          if (!mon || !mon.item) continue;
+          // if already an English item, keep
+          if (state.jpItemByEn.has(mon.item)) continue;
+          // try Japanese -> English
+          const hit = (state.itemOptions||[]).find(o => o.ja === mon.item);
+          if (hit) mon.item = hit.en;
+        }
+      }
+    }catch{}
     $("#toggleLearnset").checked = state.filterLearnset;
     renderAll();
   }
@@ -785,5 +949,5 @@
   $("#btnSim").addEventListener("click", simulate);
 
   // initial status
-  setStatus("まず「図鑑データ読み込み」を押してください。");
+  setStatus("まず「図鑑データ読み込み」を押してください。※新しめの技/特性は、表示時にネット経由で日本語名を自動取得して端末にキャッシュします。");
 })();

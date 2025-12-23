@@ -51,6 +51,7 @@ main{padding:16px;max-width:1200px;margin:0 auto}
 .badge{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:#fff}
 .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
 .field{min-width:160px;flex:1}
+.searchbox{width:100%}
 label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
 input,select,textarea{
   width:100%;
