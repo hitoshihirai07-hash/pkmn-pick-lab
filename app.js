@@ -20,6 +20,9 @@
   const state = {
     dexLoaded: false,
     filterLearnset: false,
+    ui: {
+      hideRightPicks: false,
+    },
     pokedex: null,
     moves: null,
     learnsets: null,
@@ -307,6 +310,12 @@
     state.dexLoaded = true;
     $("#btnExport").disabled = false;
     $("#btnSim").disabled = false;
+    const ids = ["#btnClearPicks", "#btnAutoLeft", "#btnAutoRight", "#btnAutoBoth", "#toggleHideRight"];
+    for (const sel of ids) {
+      const e = $(sel);
+      if (!e) continue;
+      if (sel !== "#toggleHideRight") e.disabled = false;
+    }
     $("#btnLoad").disabled = true;
 
     setStatus("読み込み完了。チームを組んでください。", "ok");
@@ -408,6 +417,9 @@
     renderTeam("left", $("#leftSlots"));
     renderTeam("right", $("#rightSlots"));
     $("#toggleLearnset").checked = state.filterLearnset;
+    const hide = $("#toggleHideRight");
+    if (hide) hide.checked = !!state.ui.hideRightPicks;
+    updateHints();
   }
 
   function renderTeam(side, root){
@@ -415,6 +427,23 @@
     state.teams[side].forEach((mon, idx) => {
       root.appendChild(renderMonCard(side, idx, mon));
     });
+  }
+
+  function countPicked(side){
+    return (state.teams[side] || []).filter(m => m && m.pick && m.speciesId).length;
+  }
+  function countFilled(side){
+    return (state.teams[side] || []).filter(m => m && m.speciesId).length;
+  }
+  function updateHints(){
+    const lP = countPicked("left");
+    const rP = countPicked("right");
+    const lF = countFilled("left");
+    const rF = countFilled("right");
+    const lh = $("#leftHint");
+    const rh = $("#rightHint");
+    if (lh) lh.textContent = `登録: ${lF}/6  選出: ${lP}/3`;
+    if (rh) rh.textContent = `登録: ${rF}/6  選出: ${state.ui.hideRightPicks ? "（非表示）" : (rP+"/3")}`;
   }
 
   function renderMonCard(side, idx, mon) {
@@ -429,10 +458,26 @@
       el("div", {class:"small"}, mon.speciesId ? fmtSpecies(mon.speciesId) : "未選択")
     );
 
-    // Hook pick checkbox
-    title.querySelector("input[type=checkbox]").addEventListener("change", (e) => {
-      mon.pick = !!e.target.checked;
-    });
+    // Hook pick checkbox (optionally hide opponent picks)
+    const pickInput = title.querySelector("input[type=checkbox]");
+    const hideOppPick = (side === "right" && !!state.ui.hideRightPicks);
+    if (hideOppPick) {
+      // Keep internal state, but don't show/allow toggling.
+      if (pickInput) {
+        pickInput.disabled = true;
+        pickInput.style.display = "none";
+        const label = pickInput.parentElement;
+        if (label) {
+          // Replace visible text
+          label.lastChild && (label.lastChild.nodeValue = "選出（非表示）");
+        }
+      }
+    } else {
+      pickInput?.addEventListener("change", (e) => {
+        mon.pick = !!e.target.checked;
+        updateHints();
+      });
+    }
 
     const speciesBox = createSearchBox({
       placeholder: "ポケモン名（日本語/英語）で検索",
@@ -813,6 +858,127 @@
     return state.teams[side].map((m,i)=>({m,i})).filter(x=>x.m.pick && x.m.speciesId);
   }
 
+  function getTeamAll(side){
+    return state.teams[side].map((m,i)=>({m,i})).filter(x=>x.m.speciesId);
+  }
+
+  function clearPicks(side){
+    for (const m of (state.teams[side]||[])) {
+      if (!m) continue;
+      m.pick = false;
+    }
+  }
+
+  function sigmoid(x){
+    return 1/(1+Math.exp(-x));
+  }
+
+  function estimateDiff(L, R){
+    // L and R are arrays of mons
+    const bestL = L.map(a => Math.max(...R.map(b => matchupScore(a,b))));
+    const bestR = R.map(b => Math.max(...L.map(a => -matchupScore(a,b))));
+    const sumL = bestL.reduce((x,y)=>x+y,0);
+    const sumR = bestR.reduce((x,y)=>x+y,0);
+    return sumL - sumR;
+  }
+
+  function pickBest3Minimax(side, oppSide){
+    const mine = getTeamAll(side);
+    const opp = getTeamAll(oppSide);
+    if (mine.length === 0) {
+      return {ok:false, msg:"候補がありません。まずポケモンを選んでください。"};
+    }
+    if (mine.length <= 3) {
+      return {ok:true, indices: mine.map(x=>x.i), p: null, oppIndices: null, note:"候補が3体以下なので全選出"};
+    }
+    if (opp.length === 0) {
+      return {ok:true, indices: mine.slice(0,3).map(x=>x.i), p: null, oppIndices: null, note:"相手側が未登録なので先頭3体"};
+    }
+
+    let best = {p:-Infinity, indices:null, oppIndices:null};
+
+    for (let a=0; a<mine.length; a++){
+      for (let b=a+1; b<mine.length; b++){
+        for (let c=b+1; c<mine.length; c++){
+          const my3 = [mine[a].m, mine[b].m, mine[c].m];
+          // opponent chooses 3 to minimize our win prob
+          let worstP = Infinity;
+          let worstOpp = null;
+          const oppMons = opp;
+          const oLen = oppMons.length;
+          // if opp <= 3, only one choice
+          if (oLen <= 3) {
+            const opp3 = oppMons.map(x=>x.m);
+            const p = sigmoid(estimateDiff(my3, opp3));
+            worstP = p;
+            worstOpp = oppMons.map(x=>x.i);
+          } else {
+            for (let i=0;i<oLen;i++){
+              for (let j=i+1;j<oLen;j++){
+                for (let k=j+1;k<oLen;k++){
+                  const opp3 = [oppMons[i].m, oppMons[j].m, oppMons[k].m];
+                  const p = sigmoid(estimateDiff(my3, opp3));
+                  if (p < worstP) {
+                    worstP = p;
+                    worstOpp = [oppMons[i].i, oppMons[j].i, oppMons[k].i];
+                  }
+                }
+              }
+            }
+          }
+
+          if (worstP > best.p) {
+            best = {p: worstP, indices:[mine[a].i, mine[b].i, mine[c].i], oppIndices: worstOpp};
+          }
+        }
+      }
+    }
+    return {ok:true, indices: best.indices, p: best.p, oppIndices: best.oppIndices, note:null};
+  }
+
+  function applyPickIndices(side, indices){
+    clearPicks(side);
+    for (const idx of indices || []) {
+      const m = state.teams[side]?.[idx];
+      if (m) m.pick = true;
+    }
+  }
+
+  function sideJa(side){ return side === "left" ? "左（あなた側）" : "右（相手側）"; }
+
+  function autoPick(side){
+    const oppSide = side === "left" ? "right" : "left";
+    const res = pickBest3Minimax(side, oppSide);
+    if (!res.ok) {
+      setStatus(res.msg, "err");
+      return;
+    }
+    applyPickIndices(side, res.indices);
+    renderAll();
+    if (res.note) {
+      setStatus(`${sideJa(side)}：${res.note}`, "note");
+    } else {
+      const pct = (typeof res.p === "number") ? `${Math.round(res.p*1000)/10}%` : "";
+      setStatus(`${sideJa(side)}をおまかせで選出しました（最悪ケース想定 ${pct}）`, "ok");
+    }
+  }
+
+  function autoPickBoth(){
+    const leftRes = pickBest3Minimax("left", "right");
+    if (!leftRes.ok) { setStatus(leftRes.msg, "err"); return; }
+    applyPickIndices("left", leftRes.indices);
+    // opponent best response (minimize left)
+    if (leftRes.oppIndices && leftRes.oppIndices.length === 3) {
+      applyPickIndices("right", leftRes.oppIndices);
+    } else {
+      // fallback: compute right vs left
+      const rightRes = pickBest3Minimax("right", "left");
+      if (rightRes.ok) applyPickIndices("right", rightRes.indices);
+    }
+    renderAll();
+    setStatus("両方おまかせで選出しました（相手は不利になりにくい選出を想定）", "ok");
+  }
+
   function getMoveTypes(mon){
     const types = [];
     for (const mid of (mon.moves||[])) {
@@ -868,13 +1034,14 @@
 
     const L = left.map(x=>x.m);
     const R = right.map(x=>x.m);
+    const hideR = !!state.ui.hideRightPicks;
 
     // table
     const table = el("table", {class:"matchTable"});
     const thead = el("thead", {},
       el("tr", {},
         el("th", {}, "左＼右"),
-        ...R.map((m,j)=>el("th", {}, fmtSpecies(m.speciesId)))
+        ...R.map((m,j)=>el("th", {}, hideR ? `相手${j+1}` : fmtSpecies(m.speciesId)))
       )
     );
     const tbody = el("tbody");
@@ -903,12 +1070,13 @@
     const pct = Math.round(p*1000)/10;
 
     const headline = el("div", {class:"ok"},
-      `左（あなた側）の目安勝率: ${pct}%  /  右: ${(100-pct).toFixed(1)}%`
+      `左（あなた側）の目安勝率: ${pct}%  /  右: ${(100-pct).toFixed(1)}%` + (hideR ? "（相手選出は非表示）" : "")
     );
 
-    const note = el("div", {class:"note", style:"margin-top:8px"},
-      "※タイプ相性＋入力した技タイプ＋S実数値の小さな補正だけ。状態異常・積み・回復・持ち物効果などは未考慮。"
-    );
+    const noteText = hideR
+      ? "※タイプ相性＋入力した技タイプ＋S実数値の小さな補正だけ。状態異常・積み・回復・持ち物効果などは未考慮。／相手選出は非表示モードです。"
+      : "※タイプ相性＋入力した技タイプ＋S実数値の小さな補正だけ。状態異常・積み・回復・持ち物効果などは未考慮。";
+    const note = el("div", {class:"note", style:"margin-top:8px"}, noteText);
 
     out.appendChild(headline);
     out.appendChild(table);
@@ -945,6 +1113,31 @@
     state.filterLearnset = !!e.target.checked;
     renderAll();
   });
+
+  const hideToggle = $("#toggleHideRight");
+  if (hideToggle) {
+    hideToggle.addEventListener("change", (e) => {
+      state.ui.hideRightPicks = !!e.target.checked;
+      renderAll();
+    });
+  }
+
+  const clearBtn = $("#btnClearPicks");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      clearPicks("left");
+      clearPicks("right");
+      renderAll();
+      setStatus("選出をリセットしました。", "ok");
+    });
+  }
+
+  const autoL = $("#btnAutoLeft");
+  if (autoL) autoL.addEventListener("click", () => autoPick("left"));
+  const autoR = $("#btnAutoRight");
+  if (autoR) autoR.addEventListener("click", () => autoPick("right"));
+  const autoB = $("#btnAutoBoth");
+  if (autoB) autoB.addEventListener("click", () => autoPickBoth());
 
   $("#btnSim").addEventListener("click", simulate);
 

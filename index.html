@@ -36,6 +36,14 @@
       </div>
       <div class="row">
         <button id="btnSim" disabled>選出でシミュする</button>
+        <button id="btnClearPicks" disabled>選出リセット</button>
+        <button id="btnAutoLeft" disabled>左をおまかせ選出</button>
+        <button id="btnAutoRight" disabled>右をおまかせ選出</button>
+        <button id="btnAutoBoth" disabled>両方おまかせ</button>
+        <label class="btn" style="display:inline-flex;align-items:center;gap:8px;">
+          相手選出を隠す
+          <input id="toggleHideRight" type="checkbox"/>
+        </label>
         <div class="small">※本気の対戦エンジンではなく、タイプ＋技タイプ中心の“ざっくり”です。</div>
       </div>
       <div id="simOut" class="note"></div>
