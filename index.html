@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pick Lab</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Pick Lab</h1>
+      <p class="subtitle">対戦・選出シミュレーター</p>
+    </div>
+    <div class="status" id="status">
+      <div class="badge" data-tone="muted">データ未読込</div>
+      <button class="btn" id="btnLoad">図鑑データ読み込み</button>
+      <button class="btn" id="btnClearCache" title="ローカルキャッシュを削除">キャッシュ削除</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="panel">
+      <div class="row">
+        <div>
+          <h2>設定</h2>
+          <div class="grid2">
+            <label class="field">
+              <span>おすすめ参照（セット候補）</span>
+              <select id="formatSelect">
+                <option value="gen9ou" selected>gen9ou（参考）</option>
+                <option value="gen9doublesou">gen9doublesou（参考）</option>
+                <option value="gen9uu">gen9uu（参考）</option>
+                <option value="gen9ubers">gen9ubers（参考）</option>
+              </select>
+              <small>※おすすめは「提案として表示するだけ」。自動で適用はしません。</small>
+            </label>
+
+            <label class="field">
+              <span>技候補の絞り込み</span>
+              <select id="moveFilterSelect">
+                <option value="learnset" selected>覚える技のみ（推奨）</option>
+                <option value="all">全技（完全自由）</option>
+              </select>
+              <small>※覚える技のみは learnsets データで判定します。</small>
+            </label>
+
+            <label class="field">
+              <span>シミュレーション回数</span>
+              <input id="iters" type="number" min="50" max="5000" step="50" value="500" />
+              <small>※簡易シミュ（状態異常・積み・天候などは未対応）。</small>
+            </label>
+
+            <label class="field">
+              <span>テラスタル（簡易）</span>
+              <select id="teraMode">
+                <option value="auto" selected>自動（ざっくり判断）</option>
+                <option value="never">使わない</option>
+              </select>
+              <small>※本家の判断/読み合いは再現しません。</small>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <h2>出力</h2>
+          <div class="output">
+            <div class="row between">
+              <button class="btn primary" id="btnSim" disabled>シミュレーション実行</button>
+              <button class="btn" id="btnExport" disabled>構築をJSON出力</button>
+              <label class="btn file">
+                JSON読込
+                <input id="fileImport" type="file" accept="application/json" />
+              </label>
+            </div>
+            <div id="result" class="result"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>チーム作成</h2>
+      <div class="teams">
+        <div class="team" id="teamA">
+          <h3>自分（A）</h3>
+          <div class="slots" id="slotsA"></div>
+        </div>
+
+        <div class="team" id="teamB">
+          <h3>相手（B）</h3>
+          <div class="slots" id="slotsB"></div>
+        </div>
+      </div>
+
+      <details class="notes">
+        <summary>注意（読む人だけ）</summary>
+        <ul>
+          <li>このページは「簡易シミュ」です。技の追加効果・状態異常・積み技・急所・ダブル特有要素などは省略しています。</li>
+          <li>図鑑データは Pokémon Showdown の公開データ（pokedex/moves/learnsets/typechart/sets）を参照します。</li>
+          <li>日本語名・持ち物名の対応は motemen/pokemon-data の公開データを参照します。</li>
+        </ul>
+      </details>
+    </section>
+
+    <footer class="footer">
+      <p class="muted">Pick Lab / 対戦・選出シミュレーター — MVP（静的サイト / GitHub + Cloudflare Pages向け）</p>
+    </footer>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "Pick Lab",
+  "short_name": "Pick Lab",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ff8a00",
+  "icons": [
+    {"src":"assets/icon.svg","sizes":"256x256","type":"image/svg+xml"}
+  ]
+}
