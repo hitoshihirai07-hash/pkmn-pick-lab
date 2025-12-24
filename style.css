@@ -81,3 +81,16 @@ textarea{min-height:72px;resize:vertical}
 .kpi{display:flex;gap:10px;flex-wrap:wrap}
 .kpi .card{flex:1;min-width:260px}
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+
+
+/* EV helper buttons */
+.evRow{display:flex;gap:6px;align-items:center}
+.evRow input{width:80px}
+.evBtns{display:flex;gap:4px}
+button.mini{
+  padding:4px 8px;
+  border-radius:10px;
+  font-size:12px;
+}
+.statLine{margin-top:6px}
+.warn{color:#b42318;font-weight:600}

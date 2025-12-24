@@ -22,6 +22,7 @@
     filterLearnset: false,
     ui: {
       hideRightPicks: false,
+      noLegends: true,
     },
     pokedex: null,
     moves: null,
@@ -310,7 +311,7 @@
     state.dexLoaded = true;
     $("#btnExport").disabled = false;
     $("#btnSim").disabled = false;
-    const ids = ["#btnClearPicks", "#btnAutoLeft", "#btnAutoRight", "#btnAutoBoth", "#toggleHideRight"];
+    const ids = ["#btnClearPicks", "#btnAutoLeft", "#btnAutoRight", "#btnAutoBoth", "#toggleHideRight", "#btnAutoTeamLeft", "#btnClearTeamLeft", "#btnAutoTeamRight", "#btnClearTeamRight", "#toggleNoLegends"];
     for (const sel of ids) {
       const e = $(sel);
       if (!e) continue;
@@ -412,6 +413,43 @@
     return stat;
   }
 
+
+
+  function calcStat(mon, key){
+    if (!mon.speciesId) return 0;
+    const p = state.pokedex[mon.speciesId];
+    if (!p || !p.baseStats) return 0;
+    const base = p.baseStats[key] || 0;
+    const level = 50;
+    const ev = clampInt(mon.evs[key] || 0, 0, 252);
+    const iv = (key === "spe") ? ((mon.ivSpe === 0) ? 0 : 31) : 31;
+    if (key === "hp") {
+      return Math.floor(((2*base + iv + Math.floor(ev/4)) * level) / 100) + level + 10;
+    }
+    let stat = Math.floor(((2*base + iv + Math.floor(ev/4)) * level) / 100) + 5;
+    const nat = natureMap.get(mon.nature);
+    let mult = 1.0;
+    if (nat?.plus === key) mult = 1.1;
+    if (nat?.minus === key) mult = 0.9;
+    return Math.floor(stat * mult);
+  }
+
+  function calcAllStats(mon){
+    return {
+      hp: calcStat(mon, "hp"),
+      atk: calcStat(mon, "atk"),
+      def: calcStat(mon, "def"),
+      spa: calcStat(mon, "spa"),
+      spd: calcStat(mon, "spd"),
+      spe: calcStat(mon, "spe"),
+    };
+  }
+
+  function evTotal(mon){
+    const e = mon.evs || {};
+    return (e.hp||0)+(e.atk||0)+(e.def||0)+(e.spa||0)+(e.spd||0)+(e.spe||0);
+  }
+
   // --- Rendering slots ---
   function renderAll() {
     renderTeam("left", $("#leftSlots"));
@@ -419,6 +457,8 @@
     $("#toggleLearnset").checked = state.filterLearnset;
     const hide = $("#toggleHideRight");
     if (hide) hide.checked = !!state.ui.hideRightPicks;
+    const noLeg = $("#toggleNoLegends");
+    if (noLeg) noLeg.checked = !!state.ui.noLegends;
     updateHints();
   }
 
@@ -538,32 +578,72 @@
     teraSel.value = mon.teraType || "";
     teraSel.addEventListener("change", e => mon.teraType = e.target.value);
 
+    let updateComputed = () => {};
+
     const natureSel = el("select");
     for (const n of NATURES) {
       natureSel.appendChild(el("option", {value:n.en}, n.ja));
     }
     natureSel.value = mon.nature || "Serious";
-    natureSel.addEventListener("change", e => mon.nature = e.target.value);
+    natureSel.addEventListener("change", e => { mon.nature = e.target.value; updateComputed(); });
 
-    const ivSel = el("select");
-    ivSel.appendChild(el("option", {value:"31"}, "S個体値 31"));
-    ivSel.appendChild(el("option", {value:"0"}, "S個体値 0"));
-    ivSel.value = String(mon.ivSpe === 0 ? 0 : 31);
-    ivSel.addEventListener("change", e => mon.ivSpe = (e.target.value === "0" ? 0 : 31));
-
-    const evSpe = el("input", {type:"number", min:"0", max:"252", step:"4"});
-    evSpe.value = String(mon.evs.spe || 0);
-    evSpe.addEventListener("input", e => mon.evs.spe = clampInt(e.target.value, 0, 252));
-
-    const evAtk = el("input", {type:"number", min:"0", max:"252", step:"4"});
-    evAtk.value = String(mon.evs.atk || 0);
-    evAtk.addEventListener("input", e => mon.evs.atk = clampInt(e.target.value, 0, 252));
-
-    const evSpa = el("input", {type:"number", min:"0", max:"252", step:"4"});
-    evSpa.value = String(mon.evs.spa || 0);
-    evSpa.addEventListener("input", e => mon.evs.spa = clampInt(e.target.value, 0, 252));
-
-    // Set suggestions
+        const ivSel = el("select");
+        ivSel.appendChild(el("option", {value:"31"}, "S個体値 31"));
+        ivSel.appendChild(el("option", {value:"0"}, "S個体値 0"));
+        ivSel.value = String(mon.ivSpe === 0 ? 0 : 31);
+        ivSel.addEventListener("change", e => { mon.ivSpe = (e.target.value === "0" ? 0 : 31); updateComputed(); });
+    
+        function makeEvField(label, key){
+          const input = el("input", {type:"number", min:"0", max:"252", step:"4"});
+          input.value = String(mon.evs[key] || 0);
+    
+          const apply = () => {
+            mon.evs[key] = clampInt(input.value, 0, 252);
+            input.value = String(mon.evs[key] || 0);
+            updateComputed();
+          };
+          input.addEventListener("input", apply);
+    
+          const btn0 = el("button", {class:"mini", type:"button"}, "0");
+          const btn252 = el("button", {class:"mini", type:"button"}, "252");
+          btn0.addEventListener("click", () => { input.value = "0"; apply(); });
+          btn252.addEventListener("click", () => { input.value = "252"; apply(); });
+    
+          const row = el("div", {class:"evRow"}, input, el("div", {class:"evBtns"}, btn0, btn252));
+          const field = el("div", {class:"field"}, el("label", {}, label), row);
+          return {field, input, btn0, btn252};
+        }
+    
+        // 努力値（全部表示）
+        const evHp = makeEvField("努力値H", "hp");
+        const evAtk = makeEvField("努力値A", "atk");
+        const evDef = makeEvField("努力値B", "def");
+        const evSpa = makeEvField("努力値C", "spa");
+        const evSpd = makeEvField("努力値D", "spd");
+        const evSpe = makeEvField("努力値S", "spe");
+    
+        const evTotalEl = el("div", {class:"small mono statLine"});
+        const statEl = el("div", {class:"small mono statLine"});
+        const bulkEl = el("div", {class:"small mono statLine"});
+    
+        updateComputed = () => {
+          if (!mon.speciesId) {
+            evTotalEl.textContent = "";
+            statEl.textContent = "";
+            bulkEl.textContent = "";
+            return;
+          }
+          const tot = evTotal(mon);
+          evTotalEl.textContent = `EV合計: ${tot}/510`;
+          evTotalEl.className = "small mono statLine" + (tot > 510 ? " warn" : "");
+          const st = calcAllStats(mon);
+          statEl.textContent = `実数値 Lv50: H${st.hp} A${st.atk} B${st.def} C${st.spa} D${st.spd} S${st.spe}`;
+          bulkEl.textContent = `耐久指数: 物理${st.hp * st.def} / 特殊${st.hp * st.spd}`;
+        };
+    
+        updateComputed();
+    
+        // Set suggestions
     const setBox = el("div", {class:"field"});
     const setTitle = el("div", {class:"small"}, "セット候補（クリックで反映）");
     const chips = el("div", {class:"chips"});
@@ -649,14 +729,13 @@
       recItems.length ? el("div", {class:"row"}, el("div", {class:"field"}, el("label", {}, "持ち物おすすめ"), itemRecBox)) : null,
       el("div", {class:"row"},
         el("div", {class:"field"}, el("label", {}, "性格"), natureSel),
-        el("div", {class:"field"}, el("label", {}, "S個体値"), ivSel),
-        el("div", {class:"field"}, el("label", {}, "努力値S"), evSpe)
+        el("div", {class:"field"}, el("label", {}, "S個体値"), ivSel)
       ),
-      el("div", {class:"row"},
-        el("div", {class:"field"}, el("label", {}, "努力値A"), evAtk),
-        el("div", {class:"field"}, el("label", {}, "努力値C"), evSpa),
-        el("div", {class:"field"}, el("label", {}, "S実数値(概算 Lv50)"), el("input", {type:"text", value: mon.speciesId ? String(calcSpeed(mon)) : "", disabled:""}))
-      ),
+      el("div", {class:"row"}, evHp.field, evDef.field, evSpd.field),
+      el("div", {class:"row"}, evAtk.field, evSpa.field, evSpe.field),
+      evTotalEl,
+      statEl,
+      bulkEl,
       el("div", {class:"hr"}),
       moveWrap
     );
@@ -946,6 +1025,72 @@
 
   function sideJa(side){ return side === "left" ? "左（あなた側）" : "右（相手側）"; }
 
+
+  function getAutoSpeciesPool(){
+    // Prefer OU set pool (more "対戦っぽい"ポケモン) ; fallback to all
+    let ids = [];
+    try{
+      const setKeys = state.sets ? Object.keys(state.sets) : [];
+      if (setKeys && setKeys.length) {
+        ids = setKeys.map(k => normalizeId(k));
+      }
+    }catch{}
+    if (!ids.length) ids = (state.speciesOptions||[]).map(o => o.id);
+
+    // Filter obvious non-playable / special-only entries
+    const out = [];
+    for (const id of ids) {
+      const p = state.pokedex?.[id];
+      if (!p) continue;
+      if (p.isNonstandard) continue;
+      if (p.battleOnly) continue;
+      if (state.ui.noLegends) {
+        const tags = p.tags || [];
+        // Exclude Restricted Legendary / Mythical (必要なら後で調整可)
+        if (tags.some(t => /Restricted Legendary/i.test(t))) continue;
+        if (tags.some(t => /Mythical/i.test(t))) continue;
+      }
+      out.push(id);
+    }
+    return Array.from(new Set(out));
+  }
+
+  function sampleUnique(arr, n){
+    const a = arr.slice();
+    for (let i=a.length-1; i>0; i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a.slice(0, Math.min(n, a.length));
+  }
+
+  function autoFillTeam(side){
+    const pool = getAutoSpeciesPool();
+    if (pool.length < 6) {
+      setStatus("おまかせ候補が足りません（図鑑読み込み後に再度お試しください）。", "err");
+      return;
+    }
+    const chosen = sampleUnique(pool, 6);
+    const team = chosen.map(id => {
+      const m = makeEmptyMon();
+      m.speciesId = id;
+      const ab = getAbilities(id);
+      m.ability = ab[0] || "";
+      for (const a of ab) { if (a && !state.jpAbilityByEn.has(a)) ensureAbilityJa(a); }
+      return m;
+    });
+    state.teams[side] = team;
+    renderAll();
+    setStatus(`${sideJa(side)}をおまかせで6体選びました（気に入らなければもう一回押してください）。`, "ok");
+  }
+
+  function clearTeam(side){
+    state.teams[side] = makeEmptyTeam();
+    renderAll();
+    setStatus(`${sideJa(side)}をクリアしました。`, "note");
+  }
+
+
   function autoPick(side){
     const oppSide = side === "left" ? "right" : "left";
     const res = pickBest3Minimax(side, oppSide);
@@ -1114,6 +1259,13 @@
     renderAll();
   });
 
+  const noLeg = $("#toggleNoLegends");
+  if (noLeg) {
+    noLeg.addEventListener("change", (e) => {
+      state.ui.noLegends = !!e.target.checked;
+    });
+  }
+
   const hideToggle = $("#toggleHideRight");
   if (hideToggle) {
     hideToggle.addEventListener("change", (e) => {
@@ -1138,6 +1290,16 @@
   if (autoR) autoR.addEventListener("click", () => autoPick("right"));
   const autoB = $("#btnAutoBoth");
   if (autoB) autoB.addEventListener("click", () => autoPickBoth());
+
+  const autoTL = $("#btnAutoTeamLeft");
+  if (autoTL) autoTL.addEventListener("click", () => autoFillTeam("left"));
+  const clearTL = $("#btnClearTeamLeft");
+  if (clearTL) clearTL.addEventListener("click", () => clearTeam("left"));
+
+  const autoTR = $("#btnAutoTeamRight");
+  if (autoTR) autoTR.addEventListener("click", () => autoFillTeam("right"));
+  const clearTR = $("#btnClearTeamRight");
+  if (clearTR) clearTR.addEventListener("click", () => clearTeam("right"));
 
   $("#btnSim").addEventListener("click", simulate);
 

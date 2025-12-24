@@ -23,6 +23,11 @@
       覚える技で絞る
       <input id="toggleLearnset" type="checkbox"/>
     </label>
+
+    <label class="btn" style="display:inline-flex;align-items:center;gap:8px;">
+      伝説を除外
+      <input id="toggleNoLegends" type="checkbox" checked/>
+    </label>
   </div>
   <div id="status" class="note" style="margin-top:8px"></div>
 </header>
@@ -55,6 +60,10 @@
       <div class="panelTitle">
         <h2>あなた側</h2>
         <div class="small" id="leftHint"></div>
+      </div>
+      <div class="row">
+        <button id="btnAutoTeamLeft" disabled>左をおまかせで6体</button>
+        <button id="btnClearTeamLeft" disabled>左をクリア</button>
       </div>
       <div id="leftSlots" class="row" style="flex-direction:column"></div>
     </section>
