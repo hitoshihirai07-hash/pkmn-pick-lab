@@ -25,9 +25,26 @@
     </label>
 
     <label class="btn" style="display:inline-flex;align-items:center;gap:8px;">
-      伝説を除外
+      通常ルール適用
+      <input id="toggleNormalRules" type="checkbox" checked/>
+    </label>
+
+    <label class="btn" style="display:inline-flex;align-items:center;gap:8px;">
+      伝説・準伝・幻を除外
       <input id="toggleNoLegends" type="checkbox" checked/>
     </label>
+
+    <label class="btn" style="display:inline-flex;align-items:center;gap:8px;">
+      レギュ適用
+      <input id="toggleReg" type="checkbox"/>
+    </label>
+
+    <label class="btn" style="display:inline-flex;align-items:center;gap:8px;">
+      レギュCSV読込
+      <input id="fileRegCsv" type="file" accept=".csv,text/csv" style="display:none"/>
+    </label>
+    <button id="btnLoadRegDefault" class="btn" type="button">同梱レギュ読込</button>
+    <span id="regInfo" class="small note" style="margin-left:6px;">レギュ: 未設定</span>
   </div>
   <div id="status" class="note" style="margin-top:8px"></div>
 </header>
