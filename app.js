@@ -970,7 +970,8 @@
       chips.appendChild(el("div", {class:"note"}, "（候補なし）"));
     } else {
       for (const s of setSuggestions) {
-        const chip = el("span", {class:"chip"}, s.name);
+        const label = fmtSetLabel(s.name, s.data);
+        const chip = el("span", {class:"chip", title: s.name}, label);
         chip.addEventListener("click", () => {
           applySetToMon(mon, s);
           renderAll();
@@ -1190,6 +1191,55 @@
       if (out.length >= limit) break;
     }
     return out;
+  }
+
+  // --- Set name localization (Showdown set labels -> Japanese) ---
+  const SETNAME_JA = {
+    "Utility": "サポート型",
+    "Wall": "受け型",
+    "All-Out Attacker": "アタッカー型",
+    "Offensive": "攻め型",
+    "Defensive": "耐久型",
+    "Physical Wall": "物理受け型",
+    "Special Wall": "特殊受け型",
+    "Swords Dance": "つるぎのまい型",
+    "Dragon Dance": "りゅうのまい型",
+    "Calm Mind": "めいそう型",
+    "Nasty Plot": "わるだくみ型",
+    "Bulk Up": "ビルドアップ型",
+    "Trick Room": "トリックルーム型",
+    "Stealth Rock": "ステルスロック型",
+    "Spikes": "まきびし型",
+    "Toxic Spikes": "どくびし型",
+    "Sticky Web": "ねばねばネット型",
+    "Screens": "壁展開型",
+    "Rain": "雨展開型",
+    "Sun": "晴れ展開型",
+  };
+
+  function fmtSetLabel(setName, setData){
+    // 1) If setName is an item name, use item JP.
+    const itemJa = state.jpItemByEn?.get(setName);
+    if (itemJa) return `${itemJa}型`;
+
+    // 2) Common role/move labels.
+    if (SETNAME_JA[setName]) return SETNAME_JA[setName];
+
+    // 3) Fallback: derive from item or main move if possible.
+    const it = setData?.item;
+    if (it) {
+      const ja = state.jpItemByEn?.get(it) || it;
+      return `${ja}型`;
+    }
+    const mv0 = Array.isArray(setData?.moves) ? setData.moves[0] : "";
+    if (mv0) {
+      const id = state.moveIdByName?.get(mv0);
+      if (id) return `${fmtMove(id)}型`;
+      return `${mv0}型`;
+    }
+
+    // 4) Last resort
+    return setName || "型";
   }
 
   function applySetToMon(mon, set){
