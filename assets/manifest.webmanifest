@@ -1,15 +1,16 @@
 {
   "name": "Pick Lab",
   "short_name": "Pick Lab",
-  "start_url": "./",
+  "start_url": "../",
   "display": "standalone",
   "background_color": "#fffaf2",
   "theme_color": "#ffb44a",
   "icons": [
     {
-      "src": "assets/icon.svg",
+      "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml"
     }
-  ]
+  ],
+  "scope": "../"
 }

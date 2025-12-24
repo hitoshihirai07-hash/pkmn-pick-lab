@@ -662,8 +662,23 @@
   }
 
   function syncHeaderToggles(){
-    const normal = $("#toggleNormalRules");
-    if (normal) normal.checked = !!state.ui.normalRules;
+    const normalRules = $("#toggleNormalRules");
+    if (normalRules) normalRules.checked = !!state.ui.normalRules;
+
+    const noLeg = $("#toggleNoLegends");
+    if (noLeg) {
+      noLeg.checked = !!state.ui.noLegends;
+      noLeg.disabled = !state.ui.normalRules;
+    }
+
+    const regToggle = $("#toggleReg");
+    if (regToggle) regToggle.checked = !!state.ui.regEnabled;
+
+    const hideToggle = $("#toggleHideRight");
+    if (hideToggle) hideToggle.checked = !!state.ui.hideRightPicks;
+
+    updateRegInfo();
+  }
 
       const normalRules = $("#toggleNormalRules");
   if (normalRules) {
