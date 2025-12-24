@@ -236,15 +236,35 @@
     return res.json();
   }
 
+  // learnsets は重いので必要になった時だけ読み込みます（初期表示を軽くするため）
+  let learnsetsPromise = null;
+  async function ensureLearnsets() {
+    if (state.learnsets) return state.learnsets;
+    if (!learnsetsPromise) {
+      setStatus("技の習得データ（learnset）を読み込み中…", "note");
+      learnsetsPromise = fetchJson("./dex/ps/learnsets.json")
+        .then(ls => {
+          state.learnsets = ls;
+          setStatus("learnset 読み込み完了", "ok");
+          return ls;
+        })
+        .catch(err => {
+          learnsetsPromise = null;
+          throw err;
+        });
+    }
+    return learnsetsPromise;
+  }
+
+
   async function loadDex() {
     if (location.protocol === "file:") {
       throw new Error("file:// 直開きだとブラウザ制限でJSONを読めません。Cloudflare Pages等に置いたURLで開いてください。");
     }
     setStatus("図鑑データを読み込み中…（初回は少し重い）");
-    const [pokedex, moves, learnsets, setsWrap, jpPokemonList, jpItemList, moveEnJa] = await Promise.all([
+    const [pokedex, moves, setsWrap, jpPokemonList, jpItemList, moveEnJa] = await Promise.all([
       fetchJson("./dex/ps/pokedex.json"),
       fetchJson("./dex/ps/moves.json"),
-      fetchJson("./dex/ps/learnsets.json"),
       fetchJson("./dex/ps/sets/gen9ou.json"),
       fetchJson("./dex/jp/POKEMON_ALL.json"),
       fetchJson("./dex/jp/ITEM_ALL.json"),
@@ -253,7 +273,7 @@
 
     state.pokedex = pokedex;
     state.moves = moves;
-    state.learnsets = learnsets;
+    state.learnsets = null;
     state.sets = setsWrap && setsWrap.dex ? setsWrap.dex : (setsWrap || {});
     state.jpMoveByEn = new Map(Object.entries(moveEnJa || {}));
 
@@ -1254,8 +1274,18 @@
     }
   });
 
-  $("#toggleLearnset").addEventListener("change", (e) => {
+  $("#toggleLearnset").addEventListener("change", async (e) => {
     state.filterLearnset = !!e.target.checked;
+    if (state.filterLearnset) {
+      try {
+        await ensureLearnsets();
+      } catch (err) {
+        console.error(err);
+        setStatus(`learnset 読み込み失敗: ${err.message}`, "err");
+        state.filterLearnset = false;
+        e.target.checked = false;
+      }
+    }
     renderAll();
   });
 
