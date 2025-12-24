@@ -35,6 +35,9 @@
     pendingJa: { move:new Map(), ability:new Map() },
     moveIdByName: new Map(),  // English move name -> id
     moveNameById: new Map(),  // id -> English name
+    moveOptionsAll: [],        // prebuilt move options for fast search
+    moveOptionById: new Map(),  // moveId -> option
+    learnsetCache: new Map(),   // speciesId -> Set(moveId)
     speciesOptions: [],       // {id, ja, en, search}
     itemOptions: [],          // {ja,en,search}
     itemEnByJa: new Map(),     // Japanese item name -> English name
@@ -70,6 +73,30 @@
 
   function normalize(s){ return (s||"").toLowerCase().replace(/[\s'’\-_.:]/g, ""); }
 
+  // --- Global UI optimizations (mobile friendly) ---
+  // 1) Avoid adding document-level listeners per input (leaks + slowdown)
+  // 2) Debounce full re-render calls
+  let dismissRegistry = [];
+  document.addEventListener("click", (e) => {
+    for (const it of dismissRegistry) {
+      if (!it?.wrap?.isConnected) continue;
+      if (!it.wrap.contains(e.target)) it.list.style.display = "none";
+    }
+  }, true);
+
+  function resetDismissRegistry(){ dismissRegistry = []; }
+  function registerDismiss(wrap, list){ dismissRegistry.push({wrap, list}); }
+
+  let _rafRender = null;
+  function scheduleRenderAll(){
+    if (_rafRender) return;
+    _rafRender = requestAnimationFrame(() => {
+      _rafRender = null;
+      renderAll();
+    });
+  }
+
+
   // Simple searchable dropdown (no <datalist> trouble)
   function createSearchBox({placeholder, getOptions, onPick, formatLabel}) {
     const wrap = el("div", {class:"searchbox"});
@@ -100,9 +127,7 @@
 
     input.addEventListener("input", () => render(input.value));
     input.addEventListener("focus", () => render(input.value));
-    document.addEventListener("click", (e) => {
-      if (!wrap.contains(e.target)) list.style.display = "none";
-    });
+    registerDismiss(wrap, list);
 
     wrap.appendChild(input);
     wrap.appendChild(list);
@@ -193,6 +218,9 @@
         const ja = pickJaName(data?.names) || "";
         if (ja) {
           state.jpMoveByEn.set(enName, ja);
+          const mid = state.moveIdByName.get(enName);
+          const opt = mid ? state.moveOptionById.get(mid) : null;
+          if (opt) { opt.label = ja || enName; opt.search = normalize(`${ja} ${enName}`); }
           saveI18nCache();
         }
         return ja;
@@ -231,7 +259,7 @@
 // --- Dex loading ---
   async function fetchJson(relPath){
     const url = new URL(relPath, location.href).toString();
-    const res = await fetch(url, {cache:"no-store"});
+    const res = await fetch(url, {cache:"force-cache"});
     if (!res.ok) throw new Error(`HTTP ${res.status} : ${relPath}`);
     return res.json();
   }
@@ -245,6 +273,7 @@
       learnsetsPromise = fetchJson("./dex/ps/learnsets.json")
         .then(ls => {
           state.learnsets = ls;
+          state.learnsetCache = new Map();
           setStatus("learnset 読み込み完了", "ok");
           return ls;
         })
@@ -290,6 +319,21 @@
       state.moveIdByName.set(m.name, id);
       state.moveNameById.set(id, m.name);
     }
+
+
+    // prebuild move options for fast search (avoid rebuilding on every key press)
+    state.moveOptionsAll = [];
+    state.moveOptionById = new Map();
+    for (const [id, m] of Object.entries(moves)) {
+      if (!m || !m.name) continue;
+      const en = m.name;
+      const ja = state.jpMoveByEn.get(en) || "";
+      const label = ja || en;
+      const opt = {id, en, label, search: normalize(`${ja} ${en}`)};
+      state.moveOptionsAll.push(opt);
+      state.moveOptionById.set(id, opt);
+    }
+    state.moveOptionsAll.sort((a,b) => a.label.localeCompare(b.label, "ja"));
 
     // pokemon jp map: use pkmn_id_name (showdown id)
     state.jpPokemonById = new Map();
@@ -472,6 +516,7 @@
 
   // --- Rendering slots ---
   function renderAll() {
+    resetDismissRegistry();
     renderTeam("left", $("#leftSlots"));
     renderTeam("right", $("#rightSlots"));
     $("#toggleLearnset").checked = state.filterLearnset;
@@ -567,7 +612,7 @@
     for (const a of abilities) {
       // lazy fetch Japanese name
       if (a && !state.jpAbilityByEn.has(a)) {
-        ensureAbilityJa(a).then(() => renderAll());
+        ensureAbilityJa(a).then(() => scheduleRenderAll());
       }
       abilitySel.appendChild(el("option", {value:a}, fmtAbility(a)));
     }
@@ -699,7 +744,7 @@
     // lazy fetch Japanese for recommended moves
     for (const mid of recMoves) {
       const en = state.moveNameById.get(mid);
-      if (en && !state.jpMoveByEn.has(en)) ensureMoveJa(en).then(() => renderAll());
+      if (en && !state.jpMoveByEn.has(en)) ensureMoveJa(en).then(() => scheduleRenderAll());
     }
     if (recMoves.length) {
       const recBox = el("div", {class:"chips"});
@@ -778,10 +823,17 @@
   }
 
   function getAllowedMoveIds(speciesId){
-    const s = state.learnsets?.[speciesId];
+    if (!speciesId || !state.learnsets) return new Set();
+    const sid = normalizeId(speciesId);
+    const cached = state.learnsetCache.get(sid);
+    if (cached) return cached;
+    const s = state.learnsets?.[sid];
     const learn = s?.learnset || {};
-    return new Set(Object.keys(learn));
+    const out = new Set(Object.keys(learn));
+    state.learnsetCache.set(sid, out);
+    return out;
   }
+
 
   function createMoveSearch(mon, moveIndex){
     const wrap = el("div", {class:"searchbox"});
@@ -793,48 +845,78 @@
     list.style.maxHeight = "220px";
     list.style.overflow = "auto";
 
-    function getMoveOptions(){
-      if (!state.dexLoaded) return [];
-      const allowed = state.filterLearnset && mon.speciesId ? getAllowedMoveIds(mon.speciesId) : null;
-      const opts = [];
-      for (const [id, m] of Object.entries(state.moves || {})) {
-        if (!m || !m.name) continue;
-        if (allowed && !allowed.has(id)) continue;
-        const en = m.name;
-        const ja = state.jpMoveByEn.get(en) || "";
-        const label = ja || en;
-        const search = normalize(`${ja} ${en}`);
-        opts.push({id, label, search});
-      }
-      return opts;
-    }
+    registerDismiss(wrap, list);
 
-    function render(q){
-      const opts = getMoveOptions();
+    let t = null;
+    const MAX = 25;
+
+    const makeBtn = (label, onClick) => {
+      const btn = el("button", {style:"width:100%; text-align:left; border:1px solid var(--line); background:#fff; padding:8px; border-radius:10px; margin:4px 0; cursor:pointer;"},
+        label
+      );
+      btn.addEventListener("click", onClick);
+      return btn;
+    };
+
+    function renderNow(q){
+      if (!state.dexLoaded) return;
       const nq = normalize(q);
-      const filtered = nq ? opts.filter(o => o.search.includes(nq)).slice(0, 25) : opts.slice(0, 15);
-      list.innerHTML = "";
-      for (const o of filtered) {
-        const btn = el("button", {style:"width:100%; text-align:left; border:1px solid var(--line); background:#fff; padding:8px; border-radius:10px; margin:4px 0; cursor:pointer;"},
-          o.label
-        );
-        btn.addEventListener("click", () => {
-          mon.moves[moveIndex] = o.id;
-          // fetch Japanese name if missing
-          const en = state.moveNameById.get(o.id);
-          if (en) ensureMoveJa(en).then(() => renderAll());
-          renderAll();
-        });
-        list.appendChild(btn);
+      const allowed = (state.filterLearnset && mon.speciesId) ? getAllowedMoveIds(mon.speciesId) : null;
+
+      const out = [];
+
+      if (!nq) {
+        // Fast path: show recommended moves first (no full scan)
+        const rec = getRecommendedMoves(mon.speciesId, 20);
+        for (const id of rec) {
+          if (allowed && !allowed.has(id)) continue;
+          const opt = state.moveOptionById.get(id);
+          out.push(opt ? opt : {id, label: fmtMove(id), search:""});
+          if (out.length >= 15) break;
+        }
+        // Fallback: show a few moves from the global list
+        if (!out.length) {
+          const src = state.moveOptionsAll || [];
+          for (let i=0; i<src.length; i++){
+            const opt = src[i];
+            if (allowed && !allowed.has(opt.id)) continue;
+            out.push(opt);
+            if (out.length >= 15) break;
+          }
+        }
+      } else {
+        // Scan prebuilt options; stop early
+        const src = state.moveOptionsAll || [];
+        for (let i=0; i<src.length; i++){
+          const opt = src[i];
+          if (allowed && !allowed.has(opt.id)) continue;
+          if (!opt.search.includes(nq)) continue;
+          out.push(opt);
+          if (out.length >= MAX) break;
+        }
       }
-      list.style.display = filtered.length ? "block" : "none";
+
+      list.innerHTML = "";
+      for (const o of out) {
+        const label = o.label || fmtMove(o.id) || "";
+        list.appendChild(makeBtn(label, () => {
+          mon.moves[moveIndex] = o.id;
+          const en = state.moveNameById.get(o.id);
+          if (en) ensureMoveJa(en).then(() => scheduleRenderAll());
+          scheduleRenderAll();
+          list.style.display = "none";
+        }));
+      }
+      list.style.display = out.length ? "block" : "none";
     }
 
-    input.addEventListener("input", () => render(input.value));
-    input.addEventListener("focus", () => render(input.value));
-    document.addEventListener("click", (e) => {
-      if (!wrap.contains(e.target)) list.style.display = "none";
-    });
+    function schedule(q){
+      if (t) clearTimeout(t);
+      t = setTimeout(() => renderNow(q), 120);
+    }
+
+    input.addEventListener("input", () => schedule(input.value));
+    input.addEventListener("focus", () => renderNow(input.value));
 
     wrap.appendChild(input);
     wrap.appendChild(list);
